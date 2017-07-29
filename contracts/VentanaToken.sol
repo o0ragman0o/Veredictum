@@ -1,7 +1,7 @@
 /*
 file:   VentanaToken.sol
-ver:    0.0.2
-updated:28-July-2017
+ver:    0.0.3
+updated:29-July-2017
 author: Darryl Morris
 email:  o0ragman0o AT gmail.com
 (c) Darryl Morris 2017
@@ -17,13 +17,56 @@ See MIT Licence for further details.
 
 Release Notes
 -------------
-0.0.2
-* initial code.
+0.0.3
+* Parameters and conversion factors stable
 */
 
 
 pragma solidity ^0.4.13;
 
+/*-----------------------------------------------------------------------------\
+
+ Ventana token sale configuration
+
+\*----------------------------------------------------------------------------*/
+
+// Contains token sale parameters
+contract VentanaTokenConfig
+{
+    // ERC20 trade symbol
+    string public           symbol          = "VNT";
+
+    // Owner has power to abort, discount addresses, sweep successful funds,
+    // change owner, sweep alien tokens.
+    address public          owner           = msg.sender;
+    
+    // Fund wallet should also be audited prior to deployment
+    // NOTE: Must be checksummed address!
+    address public          fundWallet      = 0xCA35b7d915458EF540aDe6068dFe2F44E8fa733c;
+    
+    // Tokens awarded per USD contributed
+    uint public constant    TOKENS_PER_USD  = 3;
+
+    // Ether market price in USD
+    uint public constant    USD_PER_ETH     = 200;
+    
+    // Minimum and maximum target in USD
+    uint public constant    MIN_USD_FUNDS   = 2000000;  // $2m
+    uint public constant    MAX_USD_FUNDS   = 20000000; // $20m
+
+    // Prefunding period to allow for verification, publication and
+    // discounting and contributions for selected addresses
+    uint constant           PREFUND_PERIOD  = 1 minutes; // 7 days;
+    
+    // Period for fundraising
+    uint constant           FUNDING_PERIOD  = 3 minutes; //21 days;
+
+    // % bonus token tranches
+    uint constant T1 = 25; // Tranch Wholesale 25%
+    uint constant T2 = 20; // Tranch Wholesale 20%
+    uint constant T3 = 15; // Tranch Wholesale 15%
+    uint constant T4 = 10; // Tranch Producers 10%
+}
 
 library SafeMath
 {
@@ -224,57 +267,6 @@ contract ERC20Token is ERC20TokenAbstract
 }
 
 
-/*-----------------------------------------------------------------------------\
-
- Ventana token sale configuration
-
-\*----------------------------------------------------------------------------*/
-
-// Contains token sale parameters
-contract VentanaTokenConfig
-{
-    string public           symbol          = "VNT";
-    //`2` is minimum precision for discounting calculation
-    uint8 public            decimals        = 2;
-    address public          owner           = msg.sender;
-    
-    // Fund wallet should also be audited prior to deployment
-    // address public          fundWallet      = 0x0;
-    address public          fundWallet      = 0xCA35b7d915458EF540aDe6068dFe2F44E8fa733c;
-    
-    // Token Cap
-    uint constant           MAX_TOKENS      = 300000000;
-    
-    // Conversion rates. 
-    // Can be set post deployment
-    uint public             ethUsd          = 5 finney; // (0.005 ether/USD)
-
-    // closest whole number to $0.35/token in spec paper
-    uint public constant    TOKENS_PER_USD  = 3;
-
-    // Minimum and maximum target in USD
-    uint public constant    MIN_USD_FUNDS   = 2000000;  // $2m
-    uint public constant    MAX_USD_FUNDS   = 20000000; // $20m
-
-    // Post deployment period to allow for verification, publication and
-    // discounting of selected addresses
-    // uint constant           LEAD_IN_PERIOD  = 7 days;
-    uint constant           LEAD_IN_PERIOD  = 1 minutes; // 7 days;
-    
-    // Period for fundraising
-    // uint constant           FUNDING_PERIOD  = 28 days;
-    uint constant           FUNDING_PERIOD  = 3 minutes; //28 days;
-
-    // Funding opens LEAD_IN_PERIOD after deployment (timestamps can't be constant)
-    uint public             START_DATE      = now + LEAD_IN_PERIOD;
-    uint public             END_DATE        = START_DATE + FUNDING_PERIOD;
-    
-    // discounts 
-    uint constant           T1_WHOLESALER   = 25; // Tranch 1 25%
-    uint constant           T2_WHOLESALER   = 20; // Tranch 2 20%
-    uint constant           T3_WHOLESALER   = 15; // Tranch 3 15%
-    uint constant           T4_MEDIA        = 10; // Tranch 4 10%
-}
 
 /*-----------------------------------------------------------------------------\
 
@@ -282,9 +274,8 @@ Conditional Call Table (functions must throw on F conditions)
 
 function                LEAD_IN_PERIOD  isFunding   fundFailed  fundSucceeded
 -----------------------------------------------------------------------------
-()                              F        < Caps         F           F
-proxyPurchase()                 F        < Caps         F           F
-setEthUsd()                     T           TBD         F           T
+()                              F         < Cap         F           F
+proxyPurchase()                 F         < Cap         F           F
 addDiscountedAddress()          T           T           F           F
 abort()                         T           T           T           F
 moveFundsToWallet()             F           F           F           T
@@ -315,12 +306,12 @@ contract VentanaTokenAbstract
     
     // Preauthorized tranch discount addresses
     // holder => discount
-    mapping (address => uint) public discounted;
+    mapping (address => uint) public bonuses;
     
     // Record of ether paid per address
-    mapping (address => uint) public etherPaid;
+    mapping (address => uint) public etherContributed;
 
-    // Return `true` if time exceeds START_DATE, is less than END_DATE and 
+    // Return `true` if time exceeds FUND_DATE, is less than END_DATE and 
     // MAX_FUNDS is not exceeded
     function isFunding() public constant returns (bool);
     
@@ -334,14 +325,11 @@ contract VentanaTokenAbstract
     function usdRaised() public constant returns (uint);
 
     // Returns token/ether conversion given ether value and address. 
-    function ethToTokens(uint _eth, address _addr)
+    function weiToTokens(uint _eth, address _addr)
         public constant returns (uint);
 
     // Processes a token purchase for a given address
     function proxyPurchase(address _addr) payable returns (bool);
-
-    // Sets the ETH/USD exchange rate
-    function setEthUsd(uint _ethUsd) public returns (bool);
 
     // Owner can move funds of successful fund to fundWallet 
     function moveFundsToWallet() public returns (bool);
@@ -374,6 +362,25 @@ contract VentanaToken is
     VentanaTokenAbstract,
     VentanaTokenConfig
 {
+//
+// Constants
+//
+    // Decimals at parity with ether
+    uint8 public constant decimals = 18;
+
+    // USD to ether conversion factors calculated from `VentanaTokenConfig` constants 
+    uint public constant TOKENS_PER_ETH = TOKENS_PER_USD * USD_PER_ETH;
+    uint public constant MIN_ETH_FUNDS  = 1 ether * MIN_USD_FUNDS / USD_PER_ETH;
+    uint public constant MAX_ETH_FUNDS  = 1 ether * MAX_USD_FUNDS / USD_PER_ETH;
+
+    // General funding opens LEAD_IN_PERIOD after deployment (timestamps can't be constant)
+    uint public FUND_DATE = now + PREFUND_PERIOD;
+    uint public END_DATE  = FUND_DATE + FUNDING_PERIOD;
+
+//
+// Modifiers
+//
+
     modifier onlyOwner {
         require(msg.sender == owner);
         _;
@@ -383,18 +390,18 @@ contract VentanaToken is
     {
         // ICO parameters are set in VentanaTSConfig
         // Invalid configuration catching here
+        require(bytes(symbol).length > 0);
         require(owner != 0x0);
         require(fundWallet != 0x0);
-        require(decimals >= 2);
-        require(MAX_TOKENS != 0);
-        require(FUNDING_PERIOD != 0);
-        require(ethUsd > 0);
         require(TOKENS_PER_USD > 0);
-        require(MAX_USD_FUNDS > 0);
+        require(USD_PER_ETH > 0);
+        require(MIN_USD_FUNDS > 0);
+        require(MAX_USD_FUNDS > MIN_USD_FUNDS);
+        require(PREFUND_PERIOD > 0);
+        require(FUNDING_PERIOD > 0);
     }
     
-    function ()
-        payable
+    function () payable
     {
         proxyPurchase(msg.sender);
     }
@@ -403,58 +410,39 @@ contract VentanaToken is
 // Getters
 //
 
-    // ICO is funding if not aborted, time is between start and end dates
-    function isFunding()
-        public
-        constant
-        returns (bool)
+    // ICO is funding if not aborted and time is between fund and end dates
+    function isFunding() public constant returns (bool)
     {
         return __abortFuse
-            && now > START_DATE
+            && now >= FUND_DATE
             && now < END_DATE;
     }
     
     // ICO succeeds if not aborted and minimum funds are raised before end date
-    function fundSucceeded()
-        public
-        constant
-        returns (bool)
+    function fundSucceeded() public constant returns (bool)
     {
         return __abortFuse
-            && usdRaised() >= MIN_USD_FUNDS;
+            && etherRaised >= MIN_ETH_FUNDS
+            && now >= END_DATE;
     }
     
     // ICO fails if aborted or minimum funds are not raised by the end date
-    function fundFailed()
-        public
-        constant
-        returns (bool)
+    function fundFailed() public constant returns (bool)
     {
         return !__abortFuse
-            || (usdRaised() < MIN_USD_FUNDS && now >= END_DATE);
+            || (now >= END_DATE && etherRaised < MIN_ETH_FUNDS);
     }
     
-    // Returns the USD value of ether raise at set ETH/USD rate
-    function usdRaised()
-        public
-        constant
-        returns (uint)
+    // Returns the USD value of ether raise at set USD/ETH rate
+    function usdRaised() public constant returns (uint)
     {
-        return etherRaised.div(ethUsd);
+        return etherRaised.mul(USD_PER_ETH).div(1 ether);
     }
     
-    // Returns the number of tokens for given amount of ether for and address 
-    function ethToTokens(uint _eth, address _addr)
-        public
-        constant
-        returns (uint)
+    // Returns the number of tokens for given amount of ether for an address 
+    function weiToTokens(uint _wei, address _addr) public constant returns (uint)
     {
-        // (ether * tokensPerUSD / USD per Eth) * 10^decimals
-        uint tokens = _eth.mul(TOKENS_PER_USD).div(ethUsd).leftShift(decimals);
-        
-        // Add discounted tokens
-        tokens = tokens.add(tokens.mul(discounted[_addr]).div(100));
-        return tokens;
+        return _wei.mul(TOKENS_PER_ETH).mul(bonuses[_addr] + 100).div(100);
     }
 
 //
@@ -469,7 +457,6 @@ contract VentanaToken is
         returns (bool)
     {
         require(!fundSucceeded());
-        require(__abortFuse);
         delete __abortFuse;
         return true;
     }
@@ -480,71 +467,56 @@ contract VentanaToken is
         preventReentry
         returns (bool)
     {
-        require(isFunding() || discounted[_addr] > 0);
+        require(!fundFailed());
+        require(!fundSucceeded());
         require(msg.value > 0);
+        // Only discounted addresses can fund during the PREFUND_PERIOD.
+        require(isFunding() || (bonuses[_addr] > 0 && now < END_DATE));
         
         // Base tokens
-        uint tokens = ethToTokens(msg.value, _addr);
+        uint tokens = weiToTokens(msg.value, _addr);
 
         // Update totalSupply
         totalSupply = totalSupply.add(tokens);
         
         // Update holder tokens and payments
         balances[_addr] = balances[_addr].add(tokens);
-        etherPaid[_addr] = etherPaid[_addr].add(msg.value);
+        etherContributed[_addr] = etherContributed[_addr].add(msg.value);
         
         // Update funds raised
         etherRaised = etherRaised.add(msg.value);
         
         // Bail if this pushes the fund over the USD cap or Token cap
-        require(usdRaised() <= MAX_USD_FUNDS);
-        require(totalSupply <= MAX_TOKENS.leftShift(decimals));
-        
+        require(etherRaised <= MAX_ETH_FUNDS);
+
         return true;
     }
     
-    // Owner can permission discounts for empty addresses up until close of
-    // funding
+    // Owner can permission bonuses accounts up until close of funding
     function addDiscountedAddress(address _addr, uint _tranch)
         public
         noReentry
         onlyOwner
         returns (bool)
     {
-        // Discounts can before funding is closed
-        require(!fundSucceeded() && !fundFailed());
-        
-        // Token account must be empty (else can break refund amounts)
-        require(balances[_addr] == 0);
-        
-        uint discount = _tranch == 1 ? T1_WHOLESALER :
-                        _tranch == 2 ? T2_WHOLESALER :
-                        _tranch == 3 ? T3_WHOLESALER :
-                        _tranch == 4 ? T4_MEDIA : 0;
+        require(!fundFailed());
+        require(!fundSucceeded());
+
+        uint bonus = _tranch == 1 ? T1 :
+                     _tranch == 2 ? T2 :
+                     _tranch == 3 ? T3 :
+                     _tranch == 4 ? T4 : 0;
         
         // Bail if no discount to apply
-        require(discount != 0);
+        require(bonus != 0);
         
-        // apply discount to account
-        discounted[_addr] = discount;
-        DiscountedAddress(_addr, discount);
+        // Apply discount to account
+        bonuses[_addr] = bonus;
+        DiscountedAddress(_addr, bonus);
         return true;
     }
     
-// TODO investigate using oracle or prevent rate change during funding
-
-    // ETH/USD rate can be changed by the owner.
-    function setEthUsd(uint _ethUsd)
-        public
-        noReentry
-        onlyOwner
-        returns (bool)
-    {
-        ethUsd = _ethUsd;
-        return true;
-    }
-    
-    // Funds of a successful funding can be moved by the owner to the fundWallet
+    // Owner can sweep a successful funding to the fundWallet
     function moveFundsToWallet()
         public
         onlyOwner
@@ -566,12 +538,12 @@ contract VentanaToken is
     {
         require(fundFailed());
         
-        uint refund = etherPaid[_addr];
+        uint refund = etherContributed[_addr];
         
         // garbage collect
-        delete etherPaid[_addr];
+        delete etherContributed[_addr];
         delete balances[_addr];
-        delete discounted[_addr];
+        delete bonuses[_addr];
         
         if (refund > 0) {
             _addr.transfer(refund);
@@ -591,8 +563,6 @@ contract VentanaToken is
     {
         // Token sale must be successful
         require(fundSucceeded());
-        
-        // Standard transfer
         return super.transfer(_to, _amount);
     }
 
@@ -603,8 +573,6 @@ contract VentanaToken is
     {
         // Token sale must be successful
         require(fundSucceeded());
-        
-        // Standard transferFrom
         return super.transferFrom(_from, _to, _amount);
     }
     
@@ -615,8 +583,6 @@ contract VentanaToken is
     {
         // Token sale must be successful
         require(fundSucceeded());
-        
-        // Standard approve
         return super.approve(_spender, _value);
     }
 
@@ -648,14 +614,13 @@ contract VentanaToken is
         return true;
     }
 
-    // The contract can be selfdestructed on condition that fund has failed
-    // and ether balance is 0.
+    // The contract can be selfdestructed after abort and ether balance is 0.
     function destroy()
         public
         noReentry
         onlyOwner
     {
-        require(fundFailed());
+        require(!__abortFuse);
         require(this.balance == 0);
         selfdestruct(owner);
     }
