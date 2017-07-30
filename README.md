@@ -393,7 +393,7 @@ Approval(address indexed _owner, address indexed _spender, uint256 _value);
 ```
 Triggered when a third party sender is approved
 
-##Conditional Entry Table
+## Conditional Entry Table
 Functions must throw on F conditions
 ```
 Renetry prevention on all public mutating functions
