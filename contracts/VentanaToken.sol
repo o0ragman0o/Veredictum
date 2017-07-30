@@ -1,7 +1,7 @@
 /*
 file:   VentanaToken.sol
-ver:    0.0.3
-updated:29-July-2017
+ver:    0.0.4
+updated:30-July-2017
 author: Darryl Morris
 email:  o0ragman0o AT gmail.com
 (c) Darryl Morris 2017
@@ -17,8 +17,8 @@ See MIT Licence for further details.
 
 Release Notes
 -------------
-0.0.3
-* Parameters and conversion factors stable
+0.0.4
+* added non-KYC token limit
 */
 
 
@@ -42,7 +42,7 @@ contract VentanaTokenConfig
     
     // Fund wallet should also be audited prior to deployment
     // NOTE: Must be checksummed address!
-    address public          fundWallet      = 0xCA35b7d915458EF540aDe6068dFe2F44E8fa733c;
+    address public constant FUND_WALLET      = 0xCA35b7d915458EF540aDe6068dFe2F44E8fa733c;
     
     // Tokens awarded per USD contributed
     uint public constant    TOKENS_PER_USD  = 3;
@@ -51,9 +51,11 @@ contract VentanaTokenConfig
     uint public constant    USD_PER_ETH     = 200;
     
     // Minimum and maximum target in USD
-    uint public constant    MIN_USD_FUNDS   = 2000000;  // $2m
-    uint public constant    MAX_USD_FUNDS   = 20000000; // $20m
-
+    uint public constant    MIN_USD_FUND    = 2000000;  // $2m
+    uint public constant    MAX_USD_FUND    = 20000000; // $20m
+    
+    uint public constant    KYC_USD_LMT     = 10000;
+    
     // Prefunding period to allow for verification, publication and
     // discounting and contributions for selected addresses
     uint constant           PREFUND_PERIOD  = 1 minutes; // 7 days;
@@ -61,12 +63,14 @@ contract VentanaTokenConfig
     // Period for fundraising
     uint constant           FUNDING_PERIOD  = 3 minutes; //21 days;
 
-    // % bonus token tranches
-    uint constant T1 = 25; // Tranch Wholesale 25%
-    uint constant T2 = 20; // Tranch Wholesale 20%
-    uint constant T3 = 15; // Tranch Wholesale 15%
-    uint constant T4 = 10; // Tranch Producers 10%
+    // % bonus token tranches for KYC'ed funders
+    uint constant T1 = 5;  // Tranch 5%
+    uint constant T2 = 10; // Tranch 10%
+    uint constant T3 = 15; // Tranch 15%
+    uint constant T4 = 20; // Tranch 20%
+    uint constant T5 = 25; // Tranch 25%
 }
+
 
 library SafeMath
 {
@@ -92,13 +96,6 @@ library SafeMath
     function div(uint a, uint b) internal returns (uint c) {
         c = a / b;
         // No assert required as no overflows are posible.
-    }
-    
-    // Move decimal of a, b places to the left 
-    function leftShift(uint a, uint b) internal returns (uint c) {
-        c = a * uint(10)**b;
-        // not a sufficient assert as powers may overflow multiple times
-        assert(c > a);
     }
 }
 
@@ -132,10 +129,8 @@ contract ERC20TokenAbstract
     // none
     
 /* State variable */
-    // The Total supply of tokens
+    /// @return The Total supply of tokens
     uint public totalSupply;
-    
-    uint8 public decimals;
     
     /// @return Token symbol
     string public symbol;
@@ -197,7 +192,7 @@ contract ERC20TokenAbstract
 
 contract ERC20Token is ERC20TokenAbstract
 {
-    using SafeMath for *;
+    using SafeMath for uint;
 
     // Using an explicit getter allows for function overloading    
     function balanceOf(address _addr)
@@ -212,7 +207,7 @@ contract ERC20Token is ERC20TokenAbstract
     function allowance(address _owner, address _spender)
         public
         constant
-        returns (uint remaining_)
+        returns (uint)
     {
         return allowed[_owner][_spender];
     }
@@ -270,7 +265,10 @@ contract ERC20Token is ERC20TokenAbstract
 
 /*-----------------------------------------------------------------------------\
 
-Conditional Call Table (functions must throw on F conditions)
+Conditional Entry Table (functions must throw on F conditions)
+
+renetry prevention on all public mutating functions
+Reentry mutex set in moveFundsToWallet(), refund()
 
 function                LEAD_IN_PERIOD  isFunding   fundFailed  fundSucceeded
 -----------------------------------------------------------------------------
@@ -295,6 +293,7 @@ contract VentanaTokenAbstract
     event Refunded(address indexed _addr, uint indexed _value);
     event ChangedOwner(address indexed _from, address indexed _to);
     event ChangeOwnerTo(address indexed _to);
+    event FundsTransfered(address intexed _wallet, uint indexed _value);
 
     bool __abortFuse = true;
 
@@ -365,13 +364,15 @@ contract VentanaToken is
 //
 // Constants
 //
-    // Decimals at parity with ether
+
+    // Conversion factors are calculated with decimals at parity with ether
     uint8 public constant decimals = 18;
 
     // USD to ether conversion factors calculated from `VentanaTokenConfig` constants 
     uint public constant TOKENS_PER_ETH = TOKENS_PER_USD * USD_PER_ETH;
-    uint public constant MIN_ETH_FUNDS  = 1 ether * MIN_USD_FUNDS / USD_PER_ETH;
-    uint public constant MAX_ETH_FUNDS  = 1 ether * MAX_USD_FUNDS / USD_PER_ETH;
+    uint public constant MIN_ETH_FUND   = 1 ether * MIN_USD_FUND / USD_PER_ETH;
+    uint public constant MAX_ETH_FUND   = 1 ether * MAX_USD_FUND / USD_PER_ETH;
+    uint public constant KYC_ETH_LMT    = 1 ether * KYC_USD_LMT  / USD_PER_ETH;
 
     // General funding opens LEAD_IN_PERIOD after deployment (timestamps can't be constant)
     uint public FUND_DATE = now + PREFUND_PERIOD;
@@ -386,21 +387,23 @@ contract VentanaToken is
         _;
     }
 
+    // Constructor
     function VentanaToken()
     {
         // ICO parameters are set in VentanaTSConfig
         // Invalid configuration catching here
         require(bytes(symbol).length > 0);
         require(owner != 0x0);
-        require(fundWallet != 0x0);
+        require(FUND_WALLET != 0x0);
         require(TOKENS_PER_USD > 0);
         require(USD_PER_ETH > 0);
-        require(MIN_USD_FUNDS > 0);
-        require(MAX_USD_FUNDS > MIN_USD_FUNDS);
+        require(MIN_USD_FUND > 0);
+        require(MAX_USD_FUND > MIN_USD_FUND);
         require(PREFUND_PERIOD > 0);
         require(FUNDING_PERIOD > 0);
     }
     
+    // Default function
     function () payable
     {
         proxyPurchase(msg.sender);
@@ -422,7 +425,7 @@ contract VentanaToken is
     function fundSucceeded() public constant returns (bool)
     {
         return __abortFuse
-            && etherRaised >= MIN_ETH_FUNDS
+            && etherRaised >= MIN_ETH_FUND
             && now >= END_DATE;
     }
     
@@ -430,7 +433,7 @@ contract VentanaToken is
     function fundFailed() public constant returns (bool)
     {
         return !__abortFuse
-            || (now >= END_DATE && etherRaised < MIN_ETH_FUNDS);
+            || (now >= END_DATE && etherRaised < MIN_ETH_FUND);
     }
     
     // Returns the USD value of ether raise at set USD/ETH rate
@@ -464,7 +467,7 @@ contract VentanaToken is
     // General addresses can purchase tokens during funding
     function proxyPurchase(address _addr)
         payable
-        preventReentry
+        noReentry
         returns (bool)
     {
         require(!fundFailed());
@@ -473,9 +476,12 @@ contract VentanaToken is
         // Only discounted addresses can fund during the PREFUND_PERIOD.
         require(isFunding() || (bonuses[_addr] > 0 && now < END_DATE));
         
+        // Non-KYC'ed funders can only contribute up to $10000USD;
+        if(bonuses[_addr] == 0) require(msg.value <= KYC_ETH_LMT);
+
         // Base tokens
         uint tokens = weiToTokens(msg.value, _addr);
-
+        
         // Update totalSupply
         totalSupply = totalSupply.add(tokens);
         
@@ -487,12 +493,12 @@ contract VentanaToken is
         etherRaised = etherRaised.add(msg.value);
         
         // Bail if this pushes the fund over the USD cap or Token cap
-        require(etherRaised <= MAX_ETH_FUNDS);
+        require(etherRaised <= MAX_ETH_FUND);
 
         return true;
     }
     
-    // Owner can permission bonuses accounts up until close of funding
+    // Owner can permission bonus token accounts up until close of funding
     function addDiscountedAddress(address _addr, uint _tranch)
         public
         noReentry
@@ -505,7 +511,8 @@ contract VentanaToken is
         uint bonus = _tranch == 1 ? T1 :
                      _tranch == 2 ? T2 :
                      _tranch == 3 ? T3 :
-                     _tranch == 4 ? T4 : 0;
+                     _tranch == 4 ? T4 :
+                     _tranch == 5 ? T5 : 0;
         
         // Bail if no discount to apply
         require(bonus != 0);
@@ -526,7 +533,8 @@ contract VentanaToken is
         require(fundSucceeded());
         require(this.balance > 0);
         
-        fundWallet.transfer(this.balance);
+        FundsTransfered(FUND_WALLET, this.balance);
+        FUND_WALLET.transfer(this.balance);
         return true;
     }
     
