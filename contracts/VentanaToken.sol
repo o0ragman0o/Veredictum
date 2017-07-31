@@ -293,7 +293,7 @@ contract VentanaTokenAbstract
     event Refunded(address indexed _addr, uint indexed _value);
     event ChangedOwner(address indexed _from, address indexed _to);
     event ChangeOwnerTo(address indexed _to);
-    event FundsTransfered(address intexed _wallet, uint indexed _value);
+    event FundsTransfered(address indexed _wallet, uint indexed _value);
 
     bool __abortFuse = true;
 
