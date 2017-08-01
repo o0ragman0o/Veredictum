@@ -1,7 +1,7 @@
 /*
 file:   VentanaToken.sol
-ver:    0.0.4
-updated:30-July-2017
+ver:    0.0.5_freeze
+updated:1-Aug-2017
 author: Darryl Morris
 email:  o0ragman0o AT gmail.com
 (c) Darryl Morris 2017
@@ -17,8 +17,13 @@ See MIT Licence for further details.
 
 Release Notes
 -------------
-0.0.4
-* added non-KYC token limit
+0.0.5_freeze
+* changed `function addBonusAddress()` to `function addKycAddress`
+* changed `bonuses` to `kycBonuses`
+* fixed missing proxyPurchase event
+* fixed refund local variable overloading refund function identifier
+* updated totalSupply on refund
+* Code freeze.
 */
 
 
@@ -42,7 +47,7 @@ contract VentanaTokenConfig
     
     // Fund wallet should also be audited prior to deployment
     // NOTE: Must be checksummed address!
-    address public constant FUND_WALLET      = 0xCA35b7d915458EF540aDe6068dFe2F44E8fa733c;
+    address public constant FUND_WALLET     = 0xCA35b7d915458EF540aDe6068dFe2F44E8fa733c;
     
     // Tokens awarded per USD contributed
     uint public constant    TOKENS_PER_USD  = 3;
@@ -54,14 +59,15 @@ contract VentanaTokenConfig
     uint public constant    MIN_USD_FUND    = 2000000;  // $2m
     uint public constant    MAX_USD_FUND    = 20000000; // $20m
     
+    // Non-KYC contribution limit in USD
     uint public constant    KYC_USD_LMT     = 10000;
     
     // Prefunding period to allow for verification, publication and
     // discounting and contributions for selected addresses
-    uint constant           PREFUND_PERIOD  = 1 minutes; // 7 days;
+    uint constant           PREFUND_PERIOD  = 7 days;
     
     // Period for fundraising
-    uint constant           FUNDING_PERIOD  = 3 minutes; //21 days;
+    uint constant           FUNDING_PERIOD  = 21 days;
 
     // % bonus token tranches for KYC'ed funders
     uint constant T1 = 5;  // Tranch 5%
@@ -272,17 +278,20 @@ Reentry mutex set in moveFundsToWallet(), refund()
 
 function                LEAD_IN_PERIOD  isFunding   fundFailed  fundSucceeded
 -----------------------------------------------------------------------------
-()                              F         < Cap         F           F
-proxyPurchase()                 F         < Cap         F           F
-addDiscountedAddress()          T           T           F           F
+()                              F     <MAX_USD_FUND     F           F
+proxyPurchase()                 F     <MAX_USD_FUND     F           F
+addKycAddress()                 T           T           F           F
 abort()                         T           T           T           F
 moveFundsToWallet()             F           F           F           T
 refund(address _addr)           F           F           T           F
 transfer()                      F           F           F           T
 transferFrom()                  F           F           F           T
 approve()                       F           F           F           T
-destroy()                       F           F       !abortFuse      F
-                                                    && 0 balance
+destroy()                       F           F      !__abortFuse     F
+changeOwner()                   T           T           T           T
+AcceptOwnership()               T           T           T           T
+transferAnyERC20Tokens()        T           T           T           T
+-----------------------------------------------------------------------------
 
 \*----------------------------------------------------------------------------*/
 
@@ -293,7 +302,7 @@ contract VentanaTokenAbstract
     event Refunded(address indexed _addr, uint indexed _value);
     event ChangedOwner(address indexed _from, address indexed _to);
     event ChangeOwnerTo(address indexed _to);
-    event FundsTransfered(address indexed _wallet, uint indexed _value);
+    event FundsTransferred(address indexed _wallet, uint indexed _value);
 
     bool __abortFuse = true;
 
@@ -305,7 +314,7 @@ contract VentanaTokenAbstract
     
     // Preauthorized tranch discount addresses
     // holder => discount
-    mapping (address => uint) public bonuses;
+    mapping (address => uint) public kycBonuses;
     
     // Record of ether paid per address
     mapping (address => uint) public etherContributed;
@@ -334,7 +343,7 @@ contract VentanaTokenAbstract
     function moveFundsToWallet() public returns (bool);
     
     // Registers a discounted address
-    function addDiscountedAddress(address _addr, uint _tranch)
+    function addKycAddress(address _addr, uint _tranch)
         public returns (bool);
 
     // Refund on failed or aborted sale 
@@ -361,11 +370,13 @@ contract VentanaToken is
     VentanaTokenAbstract,
     VentanaTokenConfig
 {
+    using SafeMath for uint;
+
 //
 // Constants
 //
 
-    // Conversion factors are calculated with decimals at parity with ether
+    // Token conversion factors are calculated with decimal places at parity with ether
     uint8 public constant decimals = 18;
 
     // USD to ether conversion factors calculated from `VentanaTokenConfig` constants 
@@ -421,10 +432,12 @@ contract VentanaToken is
             && now < END_DATE;
     }
     
-    // ICO succeeds if not aborted and minimum funds are raised before end date
+    // ICO succeeds if not aborted, minimum funds are raised before end date
+    // and funds have been swept to wallet
     function fundSucceeded() public constant returns (bool)
     {
         return __abortFuse
+            && this.balance == 0
             && etherRaised >= MIN_ETH_FUND
             && now >= END_DATE;
     }
@@ -445,14 +458,15 @@ contract VentanaToken is
     // Returns the number of tokens for given amount of ether for an address 
     function weiToTokens(uint _wei, address _addr) public constant returns (uint)
     {
-        return _wei.mul(TOKENS_PER_ETH).mul(bonuses[_addr] + 100).div(100);
+        return _wei.mul(TOKENS_PER_ETH).mul(kycBonuses[_addr] + 100).div(100);
     }
 
 //
 // ICO functions
 //
 
-    // The fundraising can be aborted any time before the fund is successful
+    // The fundraising can be aborted any time before funds are swept to he fundWallet
+    // This will force a fail state and allow refunds to be collected.
     function abort()
         public
         noReentry
@@ -474,10 +488,10 @@ contract VentanaToken is
         require(!fundSucceeded());
         require(msg.value > 0);
         // Only discounted addresses can fund during the PREFUND_PERIOD.
-        require(isFunding() || (bonuses[_addr] > 0 && now < END_DATE));
+        require(isFunding() || (kycBonuses[_addr] > 0 && now < END_DATE));
         
         // Non-KYC'ed funders can only contribute up to $10000USD;
-        if(bonuses[_addr] == 0) require(msg.value <= KYC_ETH_LMT);
+        if(kycBonuses[_addr] == 0) require(msg.value <= KYC_ETH_LMT);
 
         // Base tokens
         uint tokens = weiToTokens(msg.value, _addr);
@@ -495,11 +509,12 @@ contract VentanaToken is
         // Bail if this pushes the fund over the USD cap or Token cap
         require(etherRaised <= MAX_ETH_FUND);
 
+        NewTokens(_addr, tokens);
         return true;
     }
     
     // Owner can permission bonus token accounts up until close of funding
-    function addDiscountedAddress(address _addr, uint _tranch)
+    function addKycAddress(address _addr, uint _tranch)
         public
         noReentry
         onlyOwner
@@ -508,32 +523,34 @@ contract VentanaToken is
         require(!fundFailed());
         require(!fundSucceeded());
 
-        uint bonus = _tranch == 1 ? T1 :
-                     _tranch == 2 ? T2 :
-                     _tranch == 3 ? T3 :
-                     _tranch == 4 ? T4 :
-                     _tranch == 5 ? T5 : 0;
+        uint bonus = _tranch == 5 ? T1 :
+                     _tranch == 10 ? T2 :
+                     _tranch == 15 ? T3 :
+                     _tranch == 20 ? T4 :
+                     _tranch == 25 ? T5 : 0;
         
         // Bail if no discount to apply
         require(bonus != 0);
         
         // Apply discount to account
-        bonuses[_addr] = bonus;
+        kycBonuses[_addr] = bonus;
         DiscountedAddress(_addr, bonus);
         return true;
     }
     
     // Owner can sweep a successful funding to the fundWallet
+    // Contract can be aborted up until this action.
     function moveFundsToWallet()
         public
         onlyOwner
         preventReentry()
         returns (bool)
     {
-        require(fundSucceeded());
-        require(this.balance > 0);
-        
-        FundsTransfered(FUND_WALLET, this.balance);
+        require(!fundFailed());
+        require(this.balance >= MIN_ETH_FUND);
+        require(now >= END_DATE);
+
+        FundsTransferred(FUND_WALLET, this.balance);
         FUND_WALLET.transfer(this.balance);
         return true;
     }
@@ -546,16 +563,18 @@ contract VentanaToken is
     {
         require(fundFailed());
         
-        uint refund = etherContributed[_addr];
+        uint value = etherContributed[_addr];
+        
+        totalSupply = totalSupply.sub(balances[_addr]);
         
         // garbage collect
         delete etherContributed[_addr];
         delete balances[_addr];
-        delete bonuses[_addr];
+        delete kycBonuses[_addr];
         
-        if (refund > 0) {
-            _addr.transfer(refund);
-            Refunded(_addr, refund);
+        if (value > 0) {
+            _addr.transfer(value);
+            Refunded(_addr, value);
         }
         return true;
     }
@@ -569,7 +588,7 @@ contract VentanaToken is
         noReentry
         returns (bool)
     {
-        // Token sale must be successful
+        // Token sale must be successful and funds swept to wallet
         require(fundSucceeded());
         return super.transfer(_to, _amount);
     }
@@ -579,7 +598,7 @@ contract VentanaToken is
         noReentry
         returns (bool)
     {
-        // Token sale must be successful
+        // Token sale must be successful and funds swept to wallet
         require(fundSucceeded());
         return super.transferFrom(_from, _to, _amount);
     }
@@ -589,7 +608,7 @@ contract VentanaToken is
         noReentry
         returns (bool)
     {
-        // Token sale must be successful
+        // Token sale must be successful and funds swept to wallet
         require(fundSucceeded());
         return super.approve(_spender, _value);
     }

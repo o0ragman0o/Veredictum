@@ -1,42 +1,52 @@
 # Veredictum Ventana Token Sale
 
-Ethereum Token sale and embedded ERC20 Token for the Veredictum
-anti-piracy platform on distributed technology.
+Ethereum Token sale and embedded ERC20 Token for the Veredictum anti-piracy platform on distributed technology.
 
 [www.veredictum.io](https://www.veredictum.io/)
 
-```
-/*
-file:   VentanaToken.sol
-ver:    0.0.4
-updated:30-July-2017
-author: Darryl Morris
-email:  o0ragman0o AT gmail.com
-(c) Darryl Morris 2017
+This contract is written in order to raise an inital fund of ether in exchange for ERC20 tokens which will have utility value upon the Veredictum platform.
 
-A collated contract set for a token sale specific to the requirments of
-Veredictum's Ventana token product.
+The fund raising period is from deployment and over 28 days with the first 7 days being reserved for lodging KYC authorised addresses and funding.
+Non-KYC addresses may fund after the first 7 days but will be limited according to juristictional regulations to a maximum equivilent contribution of $10,000USD.
+KYC'ed addresses will also receive bonus tokens from 5% to 25% be determined at time of registration.
 
-This software is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
-See MIT Licence for further details.
-<https://opensource.org/licenses/MIT>.
+The ICO fund raising has a minimum cap of $2,000,000USD and maximum of $20,000,000USD with a base conversion ratio of 3 VNT tokens per US dollar.
 
-Release Notes
--------------
-0.0.4
-* added non-KYC token limit
-*/
-```
+ETH/USD calculations are at the rate given at deployment.
+
+The ICO will only be considered successful if the funds raised exceed the minimum cap by the 29th day.
+Successfully raised funds can be swept by the owner into the fund wallet after close of funding.
+
+The ICO will be considered failed if the minimum cap has not been reach by the 29th day or the owner has aborted the ICO.
+In the event of a failed ICO, the ether funds can be recovered unto the funders using the `refund(address)` function.
+This function will return ether contributed by the address back to the address. It may be called by anyone on the condition the fund has failed.
+
+If a security issue arrises during the time of funding and up until funds are swept to the fund wallet, the owner can call `abort()`. This will halt any further funding and allow refunds to be enacted.
+
+ERC20 token transfers are prevented until successfully raised funds are swept to the fund wallet.
+
+## Release Notes v0.0.5_freeze
+
+* changed `function addBonusAddress()` to `function addKycAddress`
+* changed `bonuses` to `kycBonuses`
+* fixed missing proxyPurchase event
+* fixed refund local variable overloading refund function identifier
+* updated totalSupply on refund
+* using `__sweptFuse` to allow/deny abort (in case issue arrises with fund wallet during funding)
+* Code freeze.
+
+## Deployment Instructions
+
+The contract parameters are hard coded and must be updated before compilation and depolyment.
+(note: USD_PER_ETH may be moved into the constructor as a parameter to allow for rate at time of deployment)
 
 ## ABI
 ```
-[{"constant":true,"inputs":[{"name":"","type":"address"}],"name":"bonuses","outputs":[{"name":"","type":"uint256"}],"payable":false,"type":"function"},{"constant":false,"inputs":[{"name":"_spender","type":"address"},{"name":"_value","type":"uint256"}],"name":"approve","outputs":[{"name":"","type":"bool"}],"payable":false,"type":"function"},{"constant":true,"inputs":[],"name":"FUND_DATE","outputs":[{"name":"","type":"uint256"}],"payable":false,"type":"function"},{"constant":false,"inputs":[{"name":"_addr","type":"address"},{"name":"_tranch","type":"uint256"}],"name":"addDiscountedAddress","outputs":[{"name":"","type":"bool"}],"payable":false,"type":"function"},{"constant":true,"inputs":[],"name":"isFunding","outputs":[{"name":"","type":"bool"}],"payable":false,"type":"function"},{"constant":true,"inputs":[],"name":"totalSupply","outputs":[{"name":"","type":"uint256"}],"payable":false,"type":"function"},{"constant":false,"inputs":[{"name":"_from","type":"address"},{"name":"_to","type":"address"},{"name":"_amount","type":"uint256"}],"name":"transferFrom","outputs":[{"name":"","type":"bool"}],"payable":false,"type":"function"},{"constant":true,"inputs":[],"name":"decimals","outputs":[{"name":"","type":"uint8"}],"payable":false,"type":"function"},{"constant":false,"inputs":[],"name":"abort","outputs":[{"name":"","type":"bool"}],"payable":false,"type":"function"},{"constant":true,"inputs":[],"name":"MAX_ETH_FUND","outputs":[{"name":"","type":"uint256"}],"payable":false,"type":"function"},{"constant":false,"inputs":[{"name":"_addr","type":"address"}],"name":"proxyPurchase","outputs":[{"name":"","type":"bool"}],"payable":true,"type":"function"},{"constant":false,"inputs":[],"name":"moveFundsToWallet","outputs":[{"name":"","type":"bool"}],"payable":false,"type":"function"},{"constant":true,"inputs":[],"name":"END_DATE","outputs":[{"name":"","type":"uint256"}],"payable":false,"type":"function"},{"constant":true,"inputs":[],"name":"fundWallet","outputs":[{"name":"","type":"address"}],"payable":false,"type":"function"},{"constant":true,"inputs":[],"name":"fundSucceeded","outputs":[{"name":"","type":"bool"}],"payable":false,"type":"function"},{"constant":true,"inputs":[{"name":"_wei","type":"uint256"},{"name":"_addr","type":"address"}],"name":"weiToTokens","outputs":[{"name":"","type":"uint256"}],"payable":false,"type":"function"},{"constant":true,"inputs":[],"name":"fundFailed","outputs":[{"name":"","type":"bool"}],"payable":false,"type":"function"},{"constant":true,"inputs":[{"name":"_addr","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"payable":false,"type":"function"},{"constant":true,"inputs":[],"name":"MIN_ETH_FUND","outputs":[{"name":"","type":"uint256"}],"payable":false,"type":"function"},{"constant":true,"inputs":[],"name":"MAX_USD_FUND","outputs":[{"name":"","type":"uint256"}],"payable":false,"type":"function"},{"constant":false,"inputs":[],"name":"acceptOwnership","outputs":[{"name":"","type":"bool"}],"payable":false,"type":"function"},{"constant":false,"inputs":[],"name":"destroy","outputs":[],"payable":false,"type":"function"},{"constant":true,"inputs":[],"name":"owner","outputs":[{"name":"","type":"address"}],"payable":false,"type":"function"},{"constant":true,"inputs":[],"name":"symbol","outputs":[{"name":"","type":"string"}],"payable":false,"type":"function"},{"constant":true,"inputs":[],"name":"KYC_ETH_LMT","outputs":[{"name":"","type":"uint256"}],"payable":false,"type":"function"},{"constant":false,"inputs":[{"name":"_newOwner","type":"address"}],"name":"changeOwner","outputs":[{"name":"","type":"bool"}],"payable":false,"type":"function"},{"constant":true,"inputs":[{"name":"","type":"address"}],"name":"etherContributed","outputs":[{"name":"","type":"uint256"}],"payable":false,"type":"function"},{"constant":false,"inputs":[{"name":"_to","type":"address"},{"name":"_amount","type":"uint256"}],"name":"transfer","outputs":[{"name":"","type":"bool"}],"payable":false,"type":"function"},{"constant":true,"inputs":[],"name":"MIN_USD_FUND","outputs":[{"name":"","type":"uint256"}],"payable":false,"type":"function"},{"constant":true,"inputs":[],"name":"USD_PER_ETH","outputs":[{"name":"","type":"uint256"}],"payable":false,"type":"function"},{"constant":true,"inputs":[],"name":"TOKENS_PER_ETH","outputs":[{"name":"","type":"uint256"}],"payable":false,"type":"function"},{"constant":true,"inputs":[],"name":"etherRaised","outputs":[{"name":"","type":"uint256"}],"payable":false,"type":"function"},{"constant":true,"inputs":[],"name":"KYC_USD_LMT","outputs":[{"name":"","type":"uint256"}],"payable":false,"type":"function"},{"constant":true,"inputs":[],"name":"newOwner","outputs":[{"name":"","type":"address"}],"payable":false,"type":"function"},{"constant":true,"inputs":[],"name":"TOKENS_PER_USD","outputs":[{"name":"","type":"uint256"}],"payable":false,"type":"function"},{"constant":false,"inputs":[{"name":"tokenAddress","type":"address"},{"name":"amount","type":"uint256"}],"name":"transferAnyERC20Token","outputs":[{"name":"","type":"bool"}],"payable":false,"type":"function"},{"constant":true,"inputs":[{"name":"_owner","type":"address"},{"name":"_spender","type":"address"}],"name":"allowance","outputs":[{"name":"remaining_","type":"uint256"}],"payable":false,"type":"function"},{"constant":true,"inputs":[],"name":"usdRaised","outputs":[{"name":"","type":"uint256"}],"payable":false,"type":"function"},{"constant":false,"inputs":[{"name":"_addr","type":"address"}],"name":"refund","outputs":[{"name":"","type":"bool"}],"payable":false,"type":"function"},{"inputs":[],"payable":false,"type":"constructor"},{"payable":true,"type":"fallback"},{"anonymous":false,"inputs":[{"indexed":true,"name":"_addr","type":"address"},{"indexed":true,"name":"_tokens","type":"uint256"}],"name":"NewTokens","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"name":"_addr","type":"address"},{"indexed":true,"name":"_tranch","type":"uint256"}],"name":"DiscountedAddress","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"name":"_addr","type":"address"},{"indexed":true,"name":"_value","type":"uint256"}],"name":"Refunded","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"name":"_from","type":"address"},{"indexed":true,"name":"_to","type":"address"}],"name":"ChangedOwner","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"name":"_to","type":"address"}],"name":"ChangeOwnerTo","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"name":"_from","type":"address"},{"indexed":true,"name":"_to","type":"address"},{"indexed":false,"name":"_value","type":"uint256"}],"name":"Transfer","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"name":"_owner","type":"address"},{"indexed":true,"name":"_spender","type":"address"},{"indexed":false,"name":"_value","type":"uint256"}],"name":"Approval","type":"event"}]
+[{"constant":false,"inputs":[{"name":"_spender","type":"address"},{"name":"_value","type":"uint256"}],"name":"approve","outputs":[{"name":"","type":"bool"}],"payable":false,"type":"function"},{"constant":true,"inputs":[],"name":"FUND_DATE","outputs":[{"name":"","type":"uint256"}],"payable":false,"type":"function"},{"constant":true,"inputs":[],"name":"isFunding","outputs":[{"name":"","type":"bool"}],"payable":false,"type":"function"},{"constant":true,"inputs":[],"name":"totalSupply","outputs":[{"name":"","type":"uint256"}],"payable":false,"type":"function"},{"constant":false,"inputs":[{"name":"_from","type":"address"},{"name":"_to","type":"address"},{"name":"_amount","type":"uint256"}],"name":"transferFrom","outputs":[{"name":"","type":"bool"}],"payable":false,"type":"function"},{"constant":true,"inputs":[],"name":"decimals","outputs":[{"name":"","type":"uint8"}],"payable":false,"type":"function"},{"constant":false,"inputs":[],"name":"abort","outputs":[{"name":"","type":"bool"}],"payable":false,"type":"function"},{"constant":true,"inputs":[],"name":"MAX_ETH_FUND","outputs":[{"name":"","type":"uint256"}],"payable":false,"type":"function"},{"constant":false,"inputs":[{"name":"_addr","type":"address"}],"name":"proxyPurchase","outputs":[{"name":"","type":"bool"}],"payable":true,"type":"function"},{"constant":false,"inputs":[],"name":"moveFundsToWallet","outputs":[{"name":"","type":"bool"}],"payable":false,"type":"function"},{"constant":true,"inputs":[],"name":"END_DATE","outputs":[{"name":"","type":"uint256"}],"payable":false,"type":"function"},{"constant":true,"inputs":[],"name":"fundSucceeded","outputs":[{"name":"","type":"bool"}],"payable":false,"type":"function"},{"constant":true,"inputs":[{"name":"_wei","type":"uint256"},{"name":"_addr","type":"address"}],"name":"weiToTokens","outputs":[{"name":"","type":"uint256"}],"payable":false,"type":"function"},{"constant":true,"inputs":[],"name":"fundFailed","outputs":[{"name":"","type":"bool"}],"payable":false,"type":"function"},{"constant":true,"inputs":[{"name":"_addr","type":"address"}],"name":"balanceOf","outputs":[{"name":"","type":"uint256"}],"payable":false,"type":"function"},{"constant":true,"inputs":[],"name":"MIN_ETH_FUND","outputs":[{"name":"","type":"uint256"}],"payable":false,"type":"function"},{"constant":true,"inputs":[],"name":"MAX_USD_FUND","outputs":[{"name":"","type":"uint256"}],"payable":false,"type":"function"},{"constant":false,"inputs":[],"name":"acceptOwnership","outputs":[{"name":"","type":"bool"}],"payable":false,"type":"function"},{"constant":false,"inputs":[],"name":"destroy","outputs":[],"payable":false,"type":"function"},{"constant":true,"inputs":[],"name":"owner","outputs":[{"name":"","type":"address"}],"payable":false,"type":"function"},{"constant":true,"inputs":[],"name":"symbol","outputs":[{"name":"","type":"string"}],"payable":false,"type":"function"},{"constant":true,"inputs":[],"name":"KYC_ETH_LMT","outputs":[{"name":"","type":"uint256"}],"payable":false,"type":"function"},{"constant":false,"inputs":[{"name":"_newOwner","type":"address"}],"name":"changeOwner","outputs":[{"name":"","type":"bool"}],"payable":false,"type":"function"},{"constant":true,"inputs":[{"name":"","type":"address"}],"name":"etherContributed","outputs":[{"name":"","type":"uint256"}],"payable":false,"type":"function"},{"constant":false,"inputs":[{"name":"_to","type":"address"},{"name":"_amount","type":"uint256"}],"name":"transfer","outputs":[{"name":"","type":"bool"}],"payable":false,"type":"function"},{"constant":true,"inputs":[],"name":"MIN_USD_FUND","outputs":[{"name":"","type":"uint256"}],"payable":false,"type":"function"},{"constant":true,"inputs":[],"name":"USD_PER_ETH","outputs":[{"name":"","type":"uint256"}],"payable":false,"type":"function"},{"constant":true,"inputs":[{"name":"","type":"address"}],"name":"kycBonuses","outputs":[{"name":"","type":"uint256"}],"payable":false,"type":"function"},{"constant":true,"inputs":[],"name":"TOKENS_PER_ETH","outputs":[{"name":"","type":"uint256"}],"payable":false,"type":"function"},{"constant":false,"inputs":[{"name":"_addr","type":"address"},{"name":"_tranch","type":"uint256"}],"name":"addKycAddress","outputs":[{"name":"","type":"bool"}],"payable":false,"type":"function"},{"constant":true,"inputs":[],"name":"etherRaised","outputs":[{"name":"","type":"uint256"}],"payable":false,"type":"function"},{"constant":true,"inputs":[],"name":"KYC_USD_LMT","outputs":[{"name":"","type":"uint256"}],"payable":false,"type":"function"},{"constant":true,"inputs":[],"name":"newOwner","outputs":[{"name":"","type":"address"}],"payable":false,"type":"function"},{"constant":true,"inputs":[],"name":"TOKENS_PER_USD","outputs":[{"name":"","type":"uint256"}],"payable":false,"type":"function"},{"constant":false,"inputs":[{"name":"tokenAddress","type":"address"},{"name":"amount","type":"uint256"}],"name":"transferAnyERC20Token","outputs":[{"name":"","type":"bool"}],"payable":false,"type":"function"},{"constant":true,"inputs":[{"name":"_owner","type":"address"},{"name":"_spender","type":"address"}],"name":"allowance","outputs":[{"name":"","type":"uint256"}],"payable":false,"type":"function"},{"constant":true,"inputs":[],"name":"FUND_WALLET","outputs":[{"name":"","type":"address"}],"payable":false,"type":"function"},{"constant":true,"inputs":[],"name":"usdRaised","outputs":[{"name":"","type":"uint256"}],"payable":false,"type":"function"},{"constant":false,"inputs":[{"name":"_addr","type":"address"}],"name":"refund","outputs":[{"name":"","type":"bool"}],"payable":false,"type":"function"},{"inputs":[],"payable":false,"type":"constructor"},{"payable":true,"type":"fallback"},{"anonymous":false,"inputs":[{"indexed":true,"name":"_addr","type":"address"},{"indexed":true,"name":"_tokens","type":"uint256"}],"name":"NewTokens","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"name":"_addr","type":"address"},{"indexed":true,"name":"_tranch","type":"uint256"}],"name":"DiscountedAddress","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"name":"_addr","type":"address"},{"indexed":true,"name":"_value","type":"uint256"}],"name":"Refunded","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"name":"_from","type":"address"},{"indexed":true,"name":"_to","type":"address"}],"name":"ChangedOwner","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"name":"_to","type":"address"}],"name":"ChangeOwnerTo","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"name":"_wallet","type":"address"},{"indexed":true,"name":"_value","type":"uint256"}],"name":"FundsTransfered","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"name":"_from","type":"address"},{"indexed":true,"name":"_to","type":"address"},{"indexed":false,"name":"_value","type":"uint256"}],"name":"Transfer","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"name":"_owner","type":"address"},{"indexed":true,"name":"_spender","type":"address"},{"indexed":false,"name":"_value","type":"uint256"}],"name":"Approval","type":"event"}]
 ```
 
 ## Ventana token sale configuration
-The ICO configuration is by way of precompiled constants
+The ICO configuration is by way of precompiled constants. At a minimum, `FUNDWALLET` and `USD_PER_ETH` are required to be edited with correct values.
 
 ```
 contract VentanaTokenConfig
@@ -50,7 +60,7 @@ contract VentanaTokenConfig
     
     // Fund wallet should also be audited prior to deployment
     // NOTE: Must be checksummed address!
-    address public constant FUNDWALLET      = 0xabcde;
+    address public constant FUNDWALLET      = 0x0;
     
     // Tokens awarded per USD contributed
     uint public constant    TOKENS_PER_USD  = 3;
@@ -120,7 +130,7 @@ Anonymous contributors must wait until funding opens.
 
 `T5` Tranch 25%
 
-Tranch table. A table of bonus tokens percentages for pre committed and KYC's funders and KYC   // Tranch 5%
+Tranch table. A table of bonus tokens percentages for precommitted and KYC's funders.
 
 ## ERC20 Functions
 
@@ -259,7 +269,7 @@ function weiToTokens(uint _eth, address _addr) public constant returns (uint);
 Returns token/ether conversion given an ether value (in wei) and an address.
 This takes into account any bonus tokens for the address
         
-### bonuses
+### kycBonuses
 ```
 function bonuses(address _addr) public constant returns (uint)
 ```
@@ -290,34 +300,28 @@ function moveFundsToWallet() public returns (bool)
 ```
 The owner can move the funds raised during a successful ICO to the fund wallet
 
-### addDiscountAddress
+### addKycAddress
 ```
-function addDiscountedAddress(address _addr, uint _tranch) public returns (bool)
+function addKycAddress(address _addr, uint _tranch) public returns (bool)
 ```
 Registers a discount tranch against an address. The address will be awarded a
 percentage of bonus tokens above the base price.
 
 `_addr` An address
 
-`_tranch` A tranch index. `1`: 5% `2`: 10% `3`: 15% `4`:20% `5`:25%
+`_tranch` A tranch index being one of, `5`: 5% `10`: 10% `15`: 15% `20`:20% `25`:25%
 
 ### abort
 ```
 function abort() public returns (bool)
 ```
-The owner can cancel the token sale any time prior to END_DATE
+The owner can cancel the token sale any time prior to funds being swept into the fund wallet
 
 ### refund
 ```
-function refund() public returns (bool);
+function refund(address _addr) public returns (bool);
 ```
 A token holder can call a refund of contributed ether from a failed ICO
-
-### proxyRefund
-```
-function proxyRefund(address _addr) public returns (bool)
-```
-A refund from a failed ICO can be sent by proxy
 
 `_addr` The address of a token holder to refund
 
@@ -341,7 +345,7 @@ Required to prove new owner address can call the contract.
 ```
 function transferAnyERC20Token(address tokenAddress, uint amount) public returns (bool)
 ```
-Allows any ERC20 tokens to be swept out of the contract address to the owner address
+Allows any ERC20 tokens owned by this contract's address to transferred to the owner address
    
 ## Events
 
@@ -357,11 +361,11 @@ DiscountedAddress(address indexed _addr, uint indexed _tranch);
 ```
 Triggered when the owner registers an address with a tranched bonus
 
-### FundsTransfered
+### FundsTransferred
 ```
-FundsTransfered(address intexed _wallet, uint indexed _value);
+FundsTransferred(address intexed _wallet, uint indexed _value);
 ```
-Triggered when raised funds are transfered to the fund wallet
+Triggered when raised funds are transfered to the fund wallet. This also indicated that tokens have become transferable
 
 ### Refunded
 ```
@@ -394,6 +398,7 @@ Approval(address indexed _owner, address indexed _spender, uint256 _value);
 Triggered when a third party sender is approved
 
 ## Conditional Entry Table
+
 Functions must throw on F conditions
 ```
 Renetry prevention on all public mutating functions
@@ -401,15 +406,18 @@ Reentry mutex set in moveFundsToWallet(), refund()
 
 function                LEAD_IN_PERIOD  isFunding   fundFailed  fundSucceeded
 -----------------------------------------------------------------------------
-()                              F         < Cap         F           F
-proxyPurchase()                 F         < Cap         F           F
-addDiscountedAddress()          T           T           F           F
+()                              F     <MAX_USD_FUND     F           F
+proxyPurchase()                 F     <MAX_USD_FUND     F           F
+addKycAddress()					T           T           F           F
 abort()                         T           T           T           F
 moveFundsToWallet()             F           F           F           T
 refund(address _addr)           F           F           T           F
-transfer()                      F           F           F           T
-transferFrom()                  F           F           F           T
-approve()                       F           F           F           T
-destroy()                       F           F       !abortFuse      F
+transfer()                      F           F           F       	T
+transferFrom()                  F           F           F       	T
+approve()                       F           F           F       	T
+destroy()                       F           F      !__abortFuse     F
+changeOwner()					T 			T			T			T
+AcceptOwnership()				T 			T			T			T
+transferAnyERC20Tokens()		T 			T			T			T
 -----------------------------------------------------------------------------
 ```
