@@ -1,6 +1,6 @@
 /*
 file:   VentanaToken.sol
-ver:    0.0.7
+ver:    0.0.8
 updated:4-Aug-2017
 author: Darryl Morris
 email:  o0ragman0o AT gmail.com
@@ -17,13 +17,12 @@ See MIT Licence for further details.
 
 Release Notes
 -------------
-0.0.7
-* added Notifier interface and VeredictumTest contract
-* added 'address public veredictum'
-* added 'function changeVeredictum(address _addr) public returns (bool);'
-* transfer and transferFrom now notify the Veridictum contract if it recieves
-tokens
-* transfer and transferFrom modified as 'preventReentry' due to external call.
+0.0.8
+* Tokens now transfered from multisig address rather than created on purchase
+* removed function moveFundsToWallet();
+* replaced with finaliseICO();
+* added 'uint public constant MAX_TOKENS = 300000000;'
+* refund transfers tokens back to multisig rather than destroy
 */
 
 
@@ -47,7 +46,7 @@ contract VentanaTokenConfig
     
     // Fund wallet should also be audited prior to deployment
     // NOTE: Must be checksummed address!
-    address public constant FUND_WALLET     = 0xCA35b7d915458EF540aDe6068dFe2F44E8fa733c;
+    address public constant FUND_WALLET     = 0x0;
     
     // Tokens awarded per USD contributed
     uint public constant    TOKENS_PER_USD  = 3;
@@ -61,6 +60,10 @@ contract VentanaTokenConfig
     
     // Non-KYC contribution limit in USD
     uint public constant    KYC_USD_LMT     = 10000;
+    
+    // There will be exactly 300,000,000 tokens regardless of number sold
+    // Unsold tokens are put into the Strategic Growth token pool
+    uint public constant    MAX_TOKENS      = 300000000;
     
     // Prefunding period to allow for verification, publication and
     // discounting and contributions for selected addresses
@@ -253,6 +256,7 @@ transferAnyERC20Tokens()    T           T           T           T           T
 
 contract VentanaTokenAbstract
 {
+// TODO comment events
     event KYCAddress(address indexed _addr, bool indexed _kyc);
     event Refunded(address indexed _addr, uint indexed _value);
     event ChangedOwner(address indexed _from, address indexed _to);
@@ -308,7 +312,7 @@ contract VentanaTokenAbstract
     function proxyPurchase(address _addr) payable returns (bool);
 
     // Owner can move funds of successful fund to fundWallet 
-    function moveFundsToWallet() public returns (bool);
+    function finaliseICO() public returns (bool);
     
     // Registers a discounted address
     function addKycAddress(address _addr, bool _kyc)
@@ -384,6 +388,11 @@ contract VentanaToken is
         require(MAX_USD_FUND > MIN_USD_FUND);
         require(PREFUND_PERIOD > 0);
         require(FUNDING_PERIOD > 0);
+        
+        // Setup token supply
+        totalSupply = MAX_TOKENS * 1e18;
+        balances[FUND_WALLET] = totalSupply;
+        Transfer(0x0, FUND_WALLET, totalSupply);
     }
     
     // Default function
@@ -445,6 +454,7 @@ contract VentanaToken is
             usd >= 5000    ? 5  :
                              0;  
         
+        // using n.2 fixed point decimal for whole number percentage.
         return _wei.mul(TOKENS_PER_ETH).mul(bonus + 100).div(100);
     }
 
@@ -483,14 +493,13 @@ contract VentanaToken is
             require((msg.value + etherContributed[_addr]) <= KYC_ETH_LMT);
         }
 
-        // Base tokens
+        // Get ether to token conversion
         uint tokens = ethToTokens(msg.value);
         
-        // Update totalSupply
-        totalSupply = totalSupply.add(tokens);
+        // transfer tokens from fund wallet
+        xfer(FUND_WALLET, _addr, tokens);
         
-        // Update holder tokens and payments
-        balances[_addr] = balances[_addr].add(tokens);
+        // Update holder payments
         etherContributed[_addr] = etherContributed[_addr].add(msg.value);
         
         // Update funds raised
@@ -499,8 +508,6 @@ contract VentanaToken is
         // Bail if this pushes the fund over the USD cap or Token cap
         require(etherRaised <= MAX_ETH_FUND);
 
-        // Indicate token creation by transferring from 0x0 address
-        Transfer(0x0, _addr, tokens);
         return true;
     }
     
@@ -520,7 +527,7 @@ contract VentanaToken is
     
     // Owner can sweep a successful funding to the fundWallet
     // Contract can be aborted up until this action.
-    function moveFundsToWallet()
+    function finaliseICO()
         public
         onlyOwner
         preventReentry()
@@ -529,6 +536,7 @@ contract VentanaToken is
         require(fundSucceeded());
 
         icoSuccessful = true;
+
         FundsTransferred(FUND_WALLET, this.balance);
         FUND_WALLET.transfer(this.balance);
         return true;
@@ -543,12 +551,13 @@ contract VentanaToken is
         require(fundFailed());
         
         uint value = etherContributed[_addr];
-        
-        totalSupply = totalSupply.sub(balances[_addr]);
-        
+
+        // Transfer tokens back to origin
+        // (Not really necessary but looking for graceful exit)
+        xfer(_addr, FUND_WALLET, balances[_addr]);
+
         // garbage collect
         delete etherContributed[_addr];
-        delete balances[_addr];
         delete kycAddresses[_addr];
         
         Refunded(_addr, value);
@@ -570,6 +579,7 @@ contract VentanaToken is
         // ICO must be successful
         require(icoSuccessful);
         super.transfer(_to, _amount);
+
         if (_to == veredictum)
             // Notify the Veredictum contract it has been sent tokens
             require(Notify(veredictum).notify(msg.sender, _amount));
@@ -584,6 +594,7 @@ contract VentanaToken is
         // ICO must be successful
         require(icoSuccessful);
         super.transferFrom(_from, _to, _amount);
+
         if (_to == veredictum)
             // Notify the Veredictum contract it has been sent tokens
             require(Notify(veredictum).notify(msg.sender, _amount));
@@ -629,7 +640,8 @@ contract VentanaToken is
         return true;
     }
 
-    // Change the address of the Veredictum contract
+    // Change the address of the Veredictum contract address. The contract
+    // must impliment the `Notify` interface.
     function changeVeredictum(address _addr)
         public
         noReentry
