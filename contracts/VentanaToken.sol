@@ -672,9 +672,9 @@ interface Notify
 
 contract VeredictumTest is Notify
 {
-    ERC20Token public vnt;
+    address public vnt;
     
-    function setVnt(address _addr) { vnt = ERC20Token(_addr); }
+    function setVnt(address _addr) { vnt = _addr; }
     
     function notify(address _from, uint _amount) public returns (bool)
     {
