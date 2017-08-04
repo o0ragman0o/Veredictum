@@ -1,6 +1,6 @@
 /*
 file:   VentanaToken.sol
-ver:    0.0.6
+ver:    0.0.7
 updated:4-Aug-2017
 author: Darryl Morris
 email:  o0ragman0o AT gmail.com
@@ -17,26 +17,13 @@ See MIT Licence for further details.
 
 Release Notes
 -------------
-0.0.6
-* made PREFUND_PERIOD, FUNDING_PERIOD public.
-* removed tranching constants
-* Moved state from ERC20TokenAbstract to ERC20Token.
-* Removed ERC20TokenAbstract for simplicity
-* Allow 0 value token transfers as per latest ERC20 spec
-* Removed `event NewTokens(address indexed _addr, uint indexed _tokens);`
-* Token creation event using event `Transfer(0x0, _to, _value)` as per latest ERC20 spec
-* Removed `return` from `preventReentry` modifier as testing shows it is redundant
-* Changed bonus schedule to funding tiers
-* Removed `mapping (address => uint) public kycBonuses`
-* Replaced with `mapping (address => bool) public kycAddresses`
-* Changed `addKycAddress(address, tranch)` to `addKycAddress(address, bool)`
-* Removed `event DiscountedAddress(address indexed _addr, uint indexed _tranch)`
-* Replaced with `event KYCAddress(address indexed _addr, uint indexed _kyc)`
-* Removed `isFunding()`
-* Added state `bool public icoSuccessful`
-* Added `usdToEth(uint) public constant returns(uint);`
-
-
+0.0.7
+* added Notifier interface and VeredictumTest contract
+* added 'address public veredictum'
+* added 'function changeVeredictum(address _addr) public returns (bool);'
+* transfer and transferFrom now notify the Veridictum contract if it recieves
+tokens
+* transfer and transferFrom modified as 'preventReentry' due to external call.
 */
 
 
@@ -77,10 +64,10 @@ contract VentanaTokenConfig
     
     // Prefunding period to allow for verification, publication and
     // discounting and contributions for selected addresses
-    uint public constant    PREFUND_PERIOD  = 2 minutes; //7 days;
+    uint public constant    PREFUND_PERIOD  = 1 minutes; //7 days;
     
     // Period for fundraising
-    uint public constant    FUNDING_PERIOD  = 3 minutes; //21 days;
+    uint public constant    FUNDING_PERIOD  = 2 minutes; //21 days;
 }
 
 
@@ -131,7 +118,6 @@ contract ReentryProtected
         _;
     }
 }
-
 
 contract ERC20Token
 {
@@ -246,22 +232,22 @@ Conditional Entry Table (functions must throw on F conditions)
 renetry prevention on all public mutating functions
 Reentry mutex set in moveFundsToWallet(), refund()
 
-function                LEAD_IN_PERIOD  isFunding   fundFailed  fundSucceeded
------------------------------------------------------------------------------
-()                              F     <MAX_USD_FUND     F           F
-proxyPurchase()                 F     <MAX_USD_FUND     F           F
-addKycAddress()                 T           T           F           F
-abort()                         T           T           T           F
-moveFundsToWallet()             F           F           F           T
-refund(address _addr)           F           F           T           F
-transfer()                      F           F           F           T
-transferFrom()                  F           F           F           T
-approve()                       F           F           F           T
-destroy()                       F           F      !__abortFuse     F
-changeOwner()                   T           T           T           T
-AcceptOwnership()               T           T           T           T
-transferAnyERC20Tokens()        T           T           T           T
------------------------------------------------------------------------------
+function            <PREFUND_PERIOD <END_DATE  fundFailed fundSucceeded icoSucceeded
+------------------------------------------------------------------------------------
+()                          KYC         T           F           F           F
+proxyPurchase()             KYC         T           F           F           F
+abort()                     T           T           T           T           F
+moveFundsToWallet()         F           F           F           T           T
+refund(address _addr)       F           F           T           F           F
+transfer()                  F           F           F           F           T
+transferFrom()              F           F           F           F           T
+approve()                   F           F           F           F           T   
+destroy()                   F           F      !__abortFuse     F           F
+changeOwner()               T           T           T           T           T
+acceptOwnership()           T           T           T           T           T
+changeVeredictum()          T           T           T           T           T
+transferAnyERC20Tokens()    T           T           T           T           T
+-----------------------------------------------------------------------------------
 
 \*----------------------------------------------------------------------------*/
 
@@ -285,6 +271,9 @@ contract VentanaTokenAbstract
 
     // An address authorised to take ownership
     address public newOwner;
+    
+    // The Veredictum smart contract address
+    address public veredictum;
     
     // Total ether raised during funding
     uint public etherRaised;
@@ -330,7 +319,10 @@ contract VentanaTokenAbstract
 
     // To cancel token sale prior to START_DATE
     function abort() public returns (bool);
-
+    
+    // Change the Veredictum backend contract address
+    function changeVeredictum(address _addr) public returns (bool);
+    
     // For owner to salvage tokens sent to contract
     function transferAnyERC20Token(address tokenAddress, uint amount)
         returns (bool);
@@ -374,6 +366,10 @@ contract VentanaToken is
         _;
     }
 
+//
+// Functions
+//
+
     // Constructor
     function VentanaToken()
     {
@@ -393,6 +389,8 @@ contract VentanaToken is
     // Default function
     function () payable
     {
+        // Pass through to purchasing function. Will throw on failed or
+        // successful ICO
         proxyPurchase(msg.sender);
     }
 
@@ -566,32 +564,41 @@ contract VentanaToken is
 
     function transfer(address _to, uint _amount)
         public
-        noReentry
+        preventReentry
         returns (bool)
     {
         // ICO must be successful
         require(icoSuccessful);
-        return super.transfer(_to, _amount);
+        super.transfer(_to, _amount);
+        if (_to == veredictum)
+            // Notify the Veredictum contract it has been sent tokens
+            require(Notify(veredictum).notify(msg.sender, _amount));
+        return true;
     }
 
     function transferFrom(address _from, address _to, uint _amount)
         public
-        noReentry
+        preventReentry
         returns (bool)
     {
         // ICO must be successful
         require(icoSuccessful);
-        return super.transferFrom(_from, _to, _amount);
+        super.transferFrom(_from, _to, _amount);
+        if (_to == veredictum)
+            // Notify the Veredictum contract it has been sent tokens
+            require(Notify(veredictum).notify(msg.sender, _amount));
+        return true;
     }
     
-    function approve(address _spender, uint _value)
+    function approve(address _spender, uint _amount)
         public
         noReentry
         returns (bool)
     {
         // ICO must be successful
         require(icoSuccessful);
-        return super.approve(_spender, _value);
+        super.approve(_spender, _amount);
+        return true;
     }
 
 //
@@ -622,6 +629,17 @@ contract VentanaToken is
         return true;
     }
 
+    // Change the address of the Veredictum contract
+    function changeVeredictum(address _addr)
+        public
+        noReentry
+        onlyOwner
+        returns (bool)
+    {
+        veredictum = _addr;
+        return true;
+    }
+    
     // The contract can be selfdestructed after abort and ether balance is 0.
     function destroy()
         public
@@ -640,5 +658,28 @@ contract VentanaToken is
         returns (bool) 
     {
         return ERC20Token(tokenAddress).transfer(owner, amount);
+    }
+}
+
+
+interface Notify
+{
+    event Notified(address indexed _from, uint indexed _amount);
+    
+    function notify(address _from, uint _amount) public returns (bool);
+}
+
+
+contract VeredictumTest is Notify
+{
+    ERC20Token public vnt;
+    
+    function setVnt(address _addr) { vnt = ERC20Token(_addr); }
+    
+    function notify(address _from, uint _amount) public returns (bool)
+    {
+        require(msg.sender == vnt);
+        Notified(_from, _amount);
+        return true;
     }
 }
