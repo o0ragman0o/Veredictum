@@ -1,7 +1,7 @@
 /*
 file:   VentanaToken.sol
-ver:    0.0.8
-updated:4-Aug-2017
+ver:    0.0.9_freeze
+updated:7-Aug-2017
 author: Darryl Morris
 email:  o0ragman0o AT gmail.com
 (c) Darryl Morris 2017
@@ -17,12 +17,17 @@ See MIT Licence for further details.
 
 Release Notes
 -------------
-0.0.8
-* Tokens now transfered from multisig address rather than created on purchase
-* removed function moveFundsToWallet();
-* replaced with finaliseICO();
-* added 'uint public constant MAX_TOKENS = 300000000;'
-* refund transfers tokens back to multisig rather than destroy
+0.0.9_freeze
+* Added 'string public name = "Ventana";'
+* set reentry mutex on transferAnyERC20Token(address tokenAddress, uint amount)
+* transferAnyERC20Token(address tokenAddress, uint amount) throws on fail
+* PREFUND_PERIOD removed
+* START_DATE set to 1502668800 (+ new Date('14 August 2017 GMT+0')/1000)
+* FUNDING_PERIOD set to 28 days
+* FUND_WALLET configured to 0x0 to break deploying without proper configuration
+* USD_PER_ETH configured to 0 to break deploying without proper configuration
+* modified transferAnyERC20Tokens() with 'preventReentry`
+
 */
 
 
@@ -37,7 +42,8 @@ pragma solidity ^0.4.13;
 // Contains token sale parameters
 contract VentanaTokenConfig
 {
-    // ERC20 trade symbol
+    // ERC20 trade name and symbol
+    string public           name            = "Ventana";
     string public           symbol          = "VNT";
 
     // Owner has power to abort, discount addresses, sweep successful funds,
@@ -52,7 +58,7 @@ contract VentanaTokenConfig
     uint public constant    TOKENS_PER_USD  = 3;
 
     // Ether market price in USD
-    uint public constant    USD_PER_ETH     = 200;
+    uint public constant    USD_PER_ETH     = 0;
     
     // Minimum and maximum target in USD
     uint public constant    MIN_USD_FUND    = 2000000;  // $2m
@@ -65,12 +71,13 @@ contract VentanaTokenConfig
     // Unsold tokens are put into the Strategic Growth token pool
     uint public constant    MAX_TOKENS      = 300000000;
     
-    // Prefunding period to allow for verification, publication and
-    // discounting and contributions for selected addresses
-    uint public constant    PREFUND_PERIOD  = 1 minutes; //7 days;
+    // Funding begins on 14th August 2017
+    // `+ new Date('14 August 2017 GMT+0')/1000`
+    uint public constant    START_DATE      = 1502668800;
     
     // Period for fundraising
-    uint public constant    FUNDING_PERIOD  = 2 minutes; //21 days;
+    uint public constant    FUNDING_PERIOD  = 28 days;
+    
 }
 
 
@@ -358,8 +365,7 @@ contract VentanaToken is
     uint public constant KYC_ETH_LMT    = 1 ether * KYC_USD_LMT  / USD_PER_ETH;
 
     // General funding opens LEAD_IN_PERIOD after deployment (timestamps can't be constant)
-    uint public FUND_DATE = now + PREFUND_PERIOD;
-    uint public END_DATE  = FUND_DATE + FUNDING_PERIOD;
+    uint public END_DATE  = START_DATE + FUNDING_PERIOD;
 
 //
 // Modifiers
@@ -380,23 +386,25 @@ contract VentanaToken is
         // ICO parameters are set in VentanaTSConfig
         // Invalid configuration catching here
         require(bytes(symbol).length > 0);
+        require(bytes(name).length > 0);
         require(owner != 0x0);
         require(FUND_WALLET != 0x0);
         require(TOKENS_PER_USD > 0);
         require(USD_PER_ETH > 0);
         require(MIN_USD_FUND > 0);
         require(MAX_USD_FUND > MIN_USD_FUND);
-        require(PREFUND_PERIOD > 0);
+        require(START_DATE > 0);
         require(FUNDING_PERIOD > 0);
         
-        // Setup token supply
+        // Setup and allocate token supply to 18 decimal places
         totalSupply = MAX_TOKENS * 1e18;
         balances[FUND_WALLET] = totalSupply;
         Transfer(0x0, FUND_WALLET, totalSupply);
     }
     
     // Default function
-    function () payable
+    function ()
+        payable
     {
         // Pass through to purchasing function. Will throw on failed or
         // successful ICO
@@ -430,7 +438,7 @@ contract VentanaToken is
     // Returns the ether value of USD at the set USD/ETH rate
     function usdToEth(uint _usd) public constant returns (uint)
     {
-        return (_usd * 1 ether).div(USD_PER_ETH);
+        return _usd.mul(1 ether).div(USD_PER_ETH);
     }
     
     // Returns the USD value of ether raised at the set USD/ETH rate
@@ -489,8 +497,8 @@ contract VentanaToken is
         // Non-KYC'ed funders can only contribute up to $10000 after prefund period
         if(!kycAddresses[_addr])
         {
-            require(now > FUND_DATE);
-            require((msg.value + etherContributed[_addr]) <= KYC_ETH_LMT);
+            require(now >= START_DATE);
+            require((etherContributed[_addr].add(msg.value)) <= KYC_ETH_LMT);
         }
 
         // Get ether to token conversion
@@ -665,11 +673,13 @@ contract VentanaToken is
     
     // Owner can salvage ERC20 tokens that may have been sent to the account
     function transferAnyERC20Token(address tokenAddress, uint amount)
+        public
         onlyOwner
-        noReentry
+        preventReentry
         returns (bool) 
     {
-        return ERC20Token(tokenAddress).transfer(owner, amount);
+        require(ERC20Token(tokenAddress).transfer(owner, amount));
+        return true;
     }
 }
 
