@@ -32,7 +32,7 @@ ETH/USD calculations are at the rate given at deployment.
 
 The ICO will only be considered successful if the funds raised exceed the minimum cap and those funds have been swept to the `FUND_WALLET`.
 
-Owners of the an ICO which has raised minimum funds may call `finalizeICO()` before the end date is reached which sets `icoSuccessful` to `true`. No further ether deposits will be accepted by the contract.
+Owners of an ICO which has raised minimum funds may call `finalizeICO()` before the end date is reached which sets `icoSuccessful` to `true`. No further ether deposits will be accepted by the contract.
 
 ERC20 token transfers are prevented until the ICO is successful.
 
@@ -66,16 +66,14 @@ The constructor takes no arguments. Some protection against invalid parameters i
 ```
 ## Release Notes
 ```
-v0.0.9_freeze
-* Added 'string public name = "Ventana";'
-* set reentry mutex on transferAnyERC20Token(address tokenAddress, uint amount)
-* transferAnyERC20Token(address tokenAddress, uint amount) throws on fail
-* PREFUND_PERIOD removed
-* START_DATE set to 1502668800 (+ new Date('14 August 2017 GMT+0')/1000)
-* FUNDING_PERIOD set to 28 days
-* FUND_WALLET configured to 0x0 to break deploying without proper configuration
-* USD_PER_ETH configured to 0 to break deploying without proper configuration
-* modified transferAnyERC20Tokens() with 'preventReentry`
+Release Notes
+-------------
+0.0.10
+* remove `constant` from FUND_WALLET declaration as assigning `msg.sender` is
+not compile time constant.
+* redeclared FUND_WALLET to `address public fundWallet`
+* `fundSucceeded()` returns true on `etherRaised >= MIN_ETH_FUND` instead of
+waiting for `END_DATE`
 ```
 
 ## Ventana token sale configuration
