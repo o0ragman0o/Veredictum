@@ -1,8 +1,8 @@
 /*
 file:   VentanaToken.sol
-ver:    0.0.9_freeze
-updated:7-Aug-2017
+ver:    0.0.10
 author: Darryl Morris
+date:   8-Aug-2017
 email:  o0ragman0o AT gmail.com
 (c) Darryl Morris 2017
 
@@ -17,16 +17,13 @@ See MIT Licence for further details.
 
 Release Notes
 -------------
-0.0.9_freeze
-* Added 'string public name = "Ventana";'
-* set reentry mutex on transferAnyERC20Token(address tokenAddress, uint amount)
-* transferAnyERC20Token(address tokenAddress, uint amount) throws on fail
-* PREFUND_PERIOD removed
-* START_DATE set to 1502668800 (+ new Date('14 August 2017 GMT+0')/1000)
-* FUNDING_PERIOD set to 28 days
-* FUND_WALLET configured to 0x0 to break deploying without proper configuration
-* USD_PER_ETH configured to 0 to break deploying without proper configuration
-* modified transferAnyERC20Tokens() with 'preventReentry`
+0.0.10
+* remove `constant` from FUND_WALLET declaration as assigning `msg.sender` is
+not compile time constant.
+* redeclared FUND_WALLET to `address public fundWallet`
+* `fundSucceeded()` returns true on `etherRaised >= MIN_ETH_FUND` instead of
+waiting for `END_DATE`
+
 
 */
 
@@ -52,13 +49,13 @@ contract VentanaTokenConfig
     
     // Fund wallet should also be audited prior to deployment
     // NOTE: Must be checksummed address!
-    address public constant FUND_WALLET     = 0x0;
-    
+    address public          fundWallet      = 0x0;
+
     // Tokens awarded per USD contributed
     uint public constant    TOKENS_PER_USD  = 3;
 
     // Ether market price in USD
-    uint public constant    USD_PER_ETH     = 0;
+    uint public constant    USD_PER_ETH     = 200;
     
     // Minimum and maximum target in USD
     uint public constant    MIN_USD_FUND    = 2000000;  // $2m
@@ -74,10 +71,9 @@ contract VentanaTokenConfig
     // Funding begins on 14th August 2017
     // `+ new Date('14 August 2017 GMT+0')/1000`
     uint public constant    START_DATE      = 1502668800;
-    
+
     // Period for fundraising
     uint public constant    FUNDING_PERIOD  = 28 days;
-    
 }
 
 
@@ -214,11 +210,15 @@ contract ERC20Token
         returns (bool)
     {
         require(_amount <= balances[_from]);
+
+        Transfer(_from, _to, _amount);
+        
+        // avoid wasting gas on 0 token transfers
+        if(_amount == 0) return true;
         
         balances[_from] = balances[_from].sub(_amount);
         balances[_to]   = balances[_to].add(_amount);
         
-        Transfer(_from, _to, _amount);
         return true;
     }
 
@@ -237,27 +237,31 @@ contract ERC20Token
 
 /*-----------------------------------------------------------------------------\
 
+## Conditional Entry Table
+
+Functions must throw on F conditions
+
 Conditional Entry Table (functions must throw on F conditions)
 
 renetry prevention on all public mutating functions
 Reentry mutex set in moveFundsToWallet(), refund()
 
-function            <PREFUND_PERIOD <END_DATE  fundFailed fundSucceeded icoSucceeded
-------------------------------------------------------------------------------------
-()                          KYC         T           F           F           F
-proxyPurchase()             KYC         T           F           F           F
-abort()                     T           T           T           T           F
-moveFundsToWallet()         F           F           F           T           T
-refund(address _addr)       F           F           T           F           F
-transfer()                  F           F           F           F           T
-transferFrom()              F           F           F           F           T
-approve()                   F           F           F           F           T   
-destroy()                   F           F      !__abortFuse     F           F
-changeOwner()               T           T           T           T           T
-acceptOwnership()           T           T           T           T           T
-changeVeredictum()          T           T           T           T           T
-transferAnyERC20Tokens()    T           T           T           T           T
------------------------------------------------------------------------------------
+|function                |<START_DATE|<END_DATE |fundFailed  |fundSucceeded|icoSucceeded
+|------------------------|:---------:|:--------:|:----------:|:-----------:|:---------:|
+|()                      |KYC        |T         |F           |T            |F          |
+|abort()                 |T          |T         |T           |T            |F          |
+|proxyPurchase()         |KYC        |T         |F           |T            |F          |
+|addKycAddress()         |T          |T         |F           |T            |T          |
+|finaliseICO()           |F          |F         |F           |T            |T          |
+|refund()                |F          |F         |T           |F            |F          |
+|transfer()              |F          |F         |F           |F            |T          |
+|transferFrom()          |F          |F         |F           |F            |T          |
+|approve()               |F          |F         |F           |F            |T          |
+|changeOwner()           |T          |T         |T           |T            |T          |
+|acceptOwnership()       |T          |T         |T           |T            |T          |
+|changeVeredictum()      |T          |T         |T           |T            |T          |
+|destroy()               |F          |F         |!__abortFuse|F            |F          |
+|transferAnyERC20Tokens()|T          |T         |T           |T            |T          |
 
 \*----------------------------------------------------------------------------*/
 
@@ -271,7 +275,7 @@ contract VentanaTokenAbstract
     event FundsTransferred(address indexed _wallet, uint indexed _value);
 
     // This fuse blows upon calling abort() which forces a fail state
-    bool __abortFuse = true;
+    bool public __abortFuse = true;
     
     // Set to true after the fund is swept to the fund wallet, allows token
     // transfers and prevents abort()
@@ -388,7 +392,7 @@ contract VentanaToken is
         require(bytes(symbol).length > 0);
         require(bytes(name).length > 0);
         require(owner != 0x0);
-        require(FUND_WALLET != 0x0);
+        require(fundWallet != 0x0);
         require(TOKENS_PER_USD > 0);
         require(USD_PER_ETH > 0);
         require(MIN_USD_FUND > 0);
@@ -398,8 +402,8 @@ contract VentanaToken is
         
         // Setup and allocate token supply to 18 decimal places
         totalSupply = MAX_TOKENS * 1e18;
-        balances[FUND_WALLET] = totalSupply;
-        Transfer(0x0, FUND_WALLET, totalSupply);
+        balances[fundWallet] = totalSupply;
+        Transfer(0x0, fundWallet, totalSupply);
     }
     
     // Default function
@@ -426,7 +430,7 @@ contract VentanaToken is
     function fundSucceeded() public constant returns (bool)
     {
         return !fundFailed()
-            && now > END_DATE;
+            && etherRaised >= MIN_ETH_FUND;
     }
 
     // Returns the USD value of ether at the set USD/ETH rate
@@ -491,7 +495,8 @@ contract VentanaToken is
         returns (bool)
     {
         require(!fundFailed());
-        require(!fundSucceeded());
+        require(!icoSuccessful);
+        require(now <= END_DATE);
         require(msg.value > 0);
         
         // Non-KYC'ed funders can only contribute up to $10000 after prefund period
@@ -505,7 +510,7 @@ contract VentanaToken is
         uint tokens = ethToTokens(msg.value);
         
         // transfer tokens from fund wallet
-        xfer(FUND_WALLET, _addr, tokens);
+        xfer(fundWallet, _addr, tokens);
         
         // Update holder payments
         etherContributed[_addr] = etherContributed[_addr].add(msg.value);
@@ -545,8 +550,8 @@ contract VentanaToken is
 
         icoSuccessful = true;
 
-        FundsTransferred(FUND_WALLET, this.balance);
-        FUND_WALLET.transfer(this.balance);
+        FundsTransferred(fundWallet, this.balance);
+        fundWallet.transfer(this.balance);
         return true;
     }
     
@@ -562,7 +567,7 @@ contract VentanaToken is
 
         // Transfer tokens back to origin
         // (Not really necessary but looking for graceful exit)
-        xfer(_addr, FUND_WALLET, balances[_addr]);
+        xfer(_addr, fundWallet, balances[_addr]);
 
         // garbage collect
         delete etherContributed[_addr];
